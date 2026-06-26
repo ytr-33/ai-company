@@ -43,12 +43,25 @@ class BaseAgent:
         self.processed_dir = self.workspace / "messages" / "processed"
         self.state_dir = self.workspace / "state"
         self.output_dir = self.workspace / "output"
-        self.client = None if MOCK_MODE else anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "dummy"))
+        self.client = None if MOCK_MODE else self._build_client()
         self.model = os.getenv("MODEL", "claude-sonnet-4-6")
 
         for d in [self.inbox_dir, self.processed_dir, self.state_dir,
                   self.output_dir / "src", self.output_dir / "docs"]:
             d.mkdir(parents=True, exist_ok=True)
+
+    def _build_client(self) -> anthropic.Anthropic:
+        # Priority: ANTHROPIC_API_KEY > ANTHROPIC_AUTH_TOKEN > CLAUDE_CODE_OAUTH_TOKEN
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN") or os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+        if api_key:
+            return anthropic.Anthropic(api_key=api_key)
+        if auth_token:
+            return anthropic.Anthropic(auth_token=auth_token)
+        raise RuntimeError(
+            "No auth configured. Set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, "
+            "or CLAUDE_CODE_OAUTH_TOKEN in .env. Or run with MOCK_MODE=true."
+        )
 
     def send_message(self, to: str, msg_type: str, content: str, extra: dict = None):
         msg = {
