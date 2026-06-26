@@ -1,0 +1,62 @@
+version: "3.9"
+
+x-agent-base: &agent-base
+  build:
+    context: .
+    dockerfile: Dockerfile.agent
+  env_file: .env
+  volumes:
+    - workspace:/workspace
+  restart: unless-stopped
+
+services:
+  ceo:
+    <<: *agent-base
+    container_name: ai-ceo
+    command: python /app/agents/ceo.py
+    environment:
+      - AGENT_NAME=ceo
+
+  architect:
+    <<: *agent-base
+    container_name: ai-architect
+    command: python /app/agents/architect.py
+    environment:
+      - AGENT_NAME=architect
+
+  developer1:
+    <<: *agent-base
+    container_name: ai-developer1
+    command: python /app/agents/developer.py developer1
+    environment:
+      - AGENT_NAME=developer1
+
+  developer2:
+    <<: *agent-base
+    container_name: ai-developer2
+    command: python /app/agents/developer.py developer2
+    environment:
+      - AGENT_NAME=developer2
+
+  reviewer:
+    <<: *agent-base
+    container_name: ai-reviewer
+    command: python /app/agents/reviewer.py
+    environment:
+      - AGENT_NAME=reviewer
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: ai-dashboard
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - workspace:/workspace
+    restart: unless-stopped
+
+volumes:
+  workspace:
+    driver: local
