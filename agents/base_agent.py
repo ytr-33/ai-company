@@ -9,6 +9,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import anthropic
 
+MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
 
@@ -41,7 +43,7 @@ class BaseAgent:
         self.processed_dir = self.workspace / "messages" / "processed"
         self.state_dir = self.workspace / "state"
         self.output_dir = self.workspace / "output"
-        self.client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        self.client = None if MOCK_MODE else anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", "dummy"))
         self.model = os.getenv("MODEL", "claude-sonnet-4-6")
 
         for d in [self.inbox_dir, self.processed_dir, self.state_dir,
@@ -118,6 +120,10 @@ class BaseAgent:
             return {}
 
     def call_claude(self, system: str, messages: list[dict]) -> str:
+        if MOCK_MODE:
+            from agents.mock_claude import get_mock_response
+            context = " ".join(m.get("content", "") for m in messages)
+            return get_mock_response(self.name, context)
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
