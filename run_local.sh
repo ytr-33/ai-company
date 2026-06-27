@@ -5,7 +5,6 @@ set -e
 cd "$(dirname "$0")"
 
 export WORKSPACE_DIR="$(pwd)/workspace"
-export MOCK_MODE="${MOCK_MODE:-false}"
 export PYTHONPATH="$(pwd)"
 
 # .envが存在すれば読み込む
@@ -15,7 +14,6 @@ fi
 
 echo "=============================="
 echo " AI Company - Local Runner"
-echo " MOCK_MODE: $MOCK_MODE"
 echo " WORKSPACE: $WORKSPACE_DIR"
 echo "=============================="
 

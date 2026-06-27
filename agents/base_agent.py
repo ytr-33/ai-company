@@ -9,8 +9,6 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import anthropic
 
-MOCK_MODE = os.getenv("MOCK_MODE", "false").lower() == "true"
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
 
@@ -43,7 +41,7 @@ class BaseAgent:
         self.processed_dir = self.workspace / "messages" / "processed"
         self.state_dir = self.workspace / "state"
         self.output_dir = self.workspace / "output"
-        self.client = None if MOCK_MODE else self._build_client()
+        self.client = self._build_client()
         self.model = os.getenv("MODEL", "claude-sonnet-4-6")
 
         for d in [self.inbox_dir, self.processed_dir, self.state_dir,
@@ -60,7 +58,7 @@ class BaseAgent:
             return anthropic.Anthropic(auth_token=auth_token)
         raise RuntimeError(
             "No auth configured. Set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, "
-            "or CLAUDE_CODE_OAUTH_TOKEN in .env. Or run with MOCK_MODE=true."
+            "or CLAUDE_CODE_OAUTH_TOKEN in .env"
         )
 
     def send_message(self, to: str, msg_type: str, content: str, extra: dict = None):
@@ -75,7 +73,6 @@ class BaseAgent:
         if extra:
             msg.update(extra)
         inbox_path = self.inbox_dir / f"{to}.json"
-        # append to list-of-messages file
         messages = []
         if inbox_path.exists():
             try:
@@ -93,7 +90,6 @@ class BaseAgent:
             return []
         try:
             messages = json.loads(inbox_path.read_text())
-            # move to processed
             processed_path = self.processed_dir / f"{self.name}_{utcnow().replace(':','').replace('.','')}.json"
             inbox_path.rename(processed_path)
             return messages
@@ -133,10 +129,6 @@ class BaseAgent:
             return {}
 
     def call_claude(self, system: str, messages: list[dict]) -> str:
-        if MOCK_MODE:
-            from agents.mock_claude import get_mock_response
-            context = " ".join(m.get("content", "") for m in messages)
-            return get_mock_response(self.name, context)
         response = self.client.messages.create(
             model=self.model,
             max_tokens=4096,
@@ -158,7 +150,6 @@ class BaseAgent:
         observer.start()
 
         try:
-            # process any existing messages at startup
             self.process_inbox()
             while True:
                 time.sleep(1)
