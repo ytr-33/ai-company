@@ -52,12 +52,13 @@ class BaseAgent:
 
     def _build_client(self) -> anthropic.Anthropic:
         # Priority: ANTHROPIC_API_KEY > ANTHROPIC_AUTH_TOKEN > CLAUDE_CODE_OAUTH_TOKEN
+        # max_retries=0: 429 のリトライは call_claude の指数バックオフに一元化する
         api_key = os.getenv("ANTHROPIC_API_KEY")
         auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN") or os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
         if api_key:
-            return anthropic.Anthropic(api_key=api_key)
+            return anthropic.Anthropic(api_key=api_key, max_retries=0)
         if auth_token:
-            return anthropic.Anthropic(auth_token=auth_token)
+            return anthropic.Anthropic(auth_token=auth_token, max_retries=0)
         raise RuntimeError(
             "No auth configured. Set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, "
             "or CLAUDE_CODE_OAUTH_TOKEN in .env"
@@ -152,8 +153,9 @@ class BaseAgent:
             return {}
 
     def call_claude(self, system: str, messages: list[dict]) -> str:
-        # RateLimitError はリセットまで 60 秒前後かかるため、SDK デフォルトの
-        # 短いリトライでは不十分。ここで指数バックオフ（最大 5 回）を追加する。
+        # SDK の自動リトライは無効化（_build_client で max_retries=0）し、
+        # ここで Retry-After ヘッダ優先・指数バックオフ（最大 5 回）を一元管理する。
+        # ベース待機を 60s にするのは TPM のリセット窓が 60s のため。
         max_retries = 5
         for attempt in range(max_retries):
             try:
@@ -167,12 +169,14 @@ class BaseAgent:
             except anthropic.RateLimitError as e:
                 if attempt == max_retries - 1:
                     raise
-                # Retry-After ヘッダがあればそれを優先、なければ指数バックオフ
+                # Retry-After / x-ratelimit-reset-requests ヘッダを優先
                 retry_after = None
                 if hasattr(e, "response") and e.response is not None:
-                    retry_after = e.response.headers.get("retry-after") or \
-                                  e.response.headers.get("x-ratelimit-reset-requests")
-                wait = float(retry_after) if retry_after else 30.0 * (2 ** attempt)
+                    retry_after = (
+                        e.response.headers.get("retry-after") or
+                        e.response.headers.get("x-ratelimit-reset-requests")
+                    )
+                wait = float(retry_after) if retry_after else 60.0 * (2 ** attempt)
                 self.log_event(
                     "rate_limit_retry",
                     f"429 レートリミット。{wait:.0f}秒後に再試行 ({attempt + 1}/{max_retries})"
