@@ -48,6 +48,8 @@ cp .env.example .env
 | `ANTHROPIC_AUTH_TOKEN` | OAuth Bearer トークン | — |
 | `CLAUDE_CODE_OAUTH_TOKEN` | OAuth トークン | `claude setup-token`（要 Claude サブスクリプション） |
 
+各トークンの詳細な取得手順は [docs/auth.md](docs/auth.md) を参照してください。
+
 `MODEL`（既定 `claude-sonnet-4-6`）でモデルを切り替えられます。
 
 ## ローカルで実行する（推奨）
