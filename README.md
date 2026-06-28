@@ -36,22 +36,20 @@ workspace/
 
 ## 認証
 
-各エージェントは Messages API（`/v1/messages`）を直接呼ぶため、**API キー（`ANTHROPIC_API_KEY`）が必要**です。
-Claude Pro / Max のサブスクリプション OAuth トークンは Messages API では使えません（理由は [docs/auth.md](docs/auth.md)）。
+各エージェントは OpenAI の Chat Completions API を呼ぶため、**API キー（`OPENAI_API_KEY`）が必要**です。
 
 ```bash
 cp .env.example .env
 ```
 
-| 環境変数 | 認証方式 | このシステムで使えるか | 取得方法 |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | API キー | ✅ 使える（要クレジット） | https://console.anthropic.com |
-| `CLAUDE_CODE_OAUTH_TOKEN` | サブスク OAuth | ❌ Messages API が拒否 | `claude setup-token` |
-| `ANTHROPIC_AUTH_TOKEN` | Bearer トークン | △ プロキシ経由用 | — |
+| 環境変数 | 用途 | 取得方法 |
+|---|---|---|
+| `OPENAI_API_KEY` | API キー（必須、要クレジット） | https://platform.openai.com |
+| `OPENAI_BASE_URL` | カスタムエンドポイント（任意。OpenRouter / LiteLLM / vLLM 等の互換 API） | — |
 
 詳細な取得手順・トラブルシュートは [docs/auth.md](docs/auth.md) を参照してください。
 
-`MODEL`（既定 `claude-sonnet-4-6`）でモデルを切り替えられます。動作確認時は `claude-haiku-4-5` が低コストです。
+`MODEL`（既定 `gpt-4o`）でモデルを切り替えられます。
 
 ## ローカルで実行する（推奨）
 
