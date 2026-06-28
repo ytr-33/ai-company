@@ -48,22 +48,29 @@ async def stream_logs():
     """SSE endpoint: streams new lines from task_log.jsonl"""
     async def event_generator():
         log_path = STATE_DIR / "task_log.jsonl"
-        last_pos = 0
+        last_pos = 0  # バイトオフセット（seek/read をバイト基準で統一）
         while True:
             if log_path.exists():
-                # FIXME(マルチバイトでシークずれ): テキストモードの seek は「文字位置」基準だが、
-                #   last_pos には encode('utf-8') の「バイト長」を足している。ログに日本語が含まれると
-                #   バイト数 > 文字数 となり seek 位置が行途中へずれ、壊れた JSON 断片を配信し得る。
-                #   対策: バイナリモード（"rb"）で開いて読み、デコードしてから処理する
-                #   （seek/tell/len をすべてバイト基準で統一する）。
-                async with aiofiles.open(log_path, "r", encoding="utf-8") as f:
+                # バイナリモードで開くことで seek/read/オフセット加算をすべてバイト基準で統一し、
+                # 日本語等のマルチバイト文字によるシークずれを回避している。
+                # また、\n（0x0A）は UTF-8 マルチバイト列の途中に現れないため、
+                # バイト列を改行で安全に分割できる。
+                # 末尾の未完了行（最後の \n 以降）は次回に持ち越す（部分行の配信を防ぐ）。
+                async with aiofiles.open(log_path, "rb") as f:
                     await f.seek(last_pos)
-                    content = await f.read()
-                    if content:
-                        last_pos += len(content.encode("utf-8"))
-                        for line in content.strip().split("\n"):
-                            if line.strip():
-                                yield f"data: {line}\n\n"
+                    raw = await f.read()
+                    if raw:
+                        # 最後の改行までを処理対象とし、それ以降の未完了バイトは持ち越す
+                        last_newline = raw.rfind(b"\n")
+                        if last_newline == -1:
+                            # 改行がない＝まだ行が完結していない → 持ち越し
+                            pass
+                        else:
+                            complete = raw[: last_newline + 1]
+                            last_pos += len(complete)
+                            for line in complete.decode("utf-8").split("\n"):
+                                if line.strip():
+                                    yield f"data: {line}\n\n"
             await asyncio.sleep(0.5)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
