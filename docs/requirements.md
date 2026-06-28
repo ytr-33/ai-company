@@ -235,7 +235,7 @@ workspace/
 |---|---|
 | `send_message(to, type, content, extra)` | `workspace/messages/inbox/<to>.json` にメッセージを追記 |
 | `read_inbox()` | 自身の inbox を読み込み、`processed/` に移動してリターン |
-| `call_claude(system, messages)` | Anthropic API を呼び出してテキストを返す |
+| `call_claude(system, messages)` | OpenAI Chat Completions API を呼び出してテキストを返す（メソッド名は互換のため維持） |
 | `log_event(event, detail)` | `task_log.jsonl` に追記しロガーに出力 |
 | `update_state(key, value)` | `project.json` にキーを書き込む |
 | `get_state()` | `project.json` を読み込んで返す |
@@ -245,15 +245,14 @@ workspace/
 
 ## 12. 認証
 
-Anthropic API の認証情報を以下の優先順位で解決する。
+OpenAI API の認証情報を以下で解決する。
 
-| 優先 | 環境変数 | 認証方式 |
-|---|---|---|
-| 1 | `ANTHROPIC_API_KEY` | API キー |
-| 2 | `ANTHROPIC_AUTH_TOKEN` | OAuth Bearer トークン |
-| 3 | `CLAUDE_CODE_OAUTH_TOKEN` | OAuth Bearer トークン（`claude setup-token` で取得） |
+| 環境変数 | 用途 |
+|---|---|
+| `OPENAI_API_KEY` | API キー（必須） |
+| `OPENAI_BASE_URL` | カスタムエンドポイント（任意。OpenAI 互換 API 用） |
 
-いずれも未設定の場合は起動時に `RuntimeError` を送出する。
+`OPENAI_API_KEY` が未設定の場合は起動時に `RuntimeError` を送出する。
 
 ---
 
@@ -289,7 +288,7 @@ python3 cli/main.py "<依頼内容>"
 ```bash
 # .env を準備
 cp .env.example .env
-# ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN を設定
+# OPENAI_API_KEY を設定
 
 # 全エージェント + ダッシュボードを一括起動
 bash run_local.sh
@@ -304,7 +303,7 @@ python3 cli/main.py "TODO REST API を FastAPI で作って"
 
 | 項目 | 内容 |
 |---|---|
-| LLM モデル | 環境変数 `MODEL` で指定（デフォルト: `claude-sonnet-4-6`） |
+| LLM モデル | 環境変数 `MODEL` で指定（デフォルト: `gpt-4o`） |
 | LLM 最大トークン | 4096 tokens / 呼び出し |
 | レビュー最大試行回数 | 3 回（`MAX_RETRIES = 3`） |
 | CLI タイムアウト | 180 秒 |

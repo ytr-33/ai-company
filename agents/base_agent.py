@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import anthropic
+import openai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
@@ -44,25 +44,22 @@ class BaseAgent:
         self.state_dir = self.workspace / "state"
         self.output_dir = self.workspace / "output"
         self.client = self._build_client()
-        self.model = os.getenv("MODEL", "claude-sonnet-4-6")
+        self.model = os.getenv("MODEL", "gpt-4o")
 
         for d in [self.inbox_dir, self.processed_dir, self.state_dir,
                   self.output_dir / "src", self.output_dir / "docs"]:
             d.mkdir(parents=True, exist_ok=True)
 
-    def _build_client(self) -> anthropic.Anthropic:
-        # Priority: ANTHROPIC_API_KEY > ANTHROPIC_AUTH_TOKEN > CLAUDE_CODE_OAUTH_TOKEN
+    def _build_client(self) -> openai.OpenAI:
         # max_retries=0: 429 のリトライは call_claude の指数バックオフに一元化する
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN") or os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-        if api_key:
-            return anthropic.Anthropic(api_key=api_key, max_retries=0)
-        if auth_token:
-            return anthropic.Anthropic(auth_token=auth_token, max_retries=0)
-        raise RuntimeError(
-            "No auth configured. Set ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, "
-            "or CLAUDE_CODE_OAUTH_TOKEN in .env"
-        )
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("No auth configured. Set OPENAI_API_KEY in .env")
+        base_url = os.getenv("OPENAI_BASE_URL")  # カスタムエンドポイント（任意）
+        kwargs = {"api_key": api_key, "max_retries": 0}
+        if base_url:
+            kwargs["base_url"] = base_url
+        return openai.OpenAI(**kwargs)
 
     @contextlib.contextmanager
     def _inbox_lock(self, name: str):
@@ -153,29 +150,27 @@ class BaseAgent:
             return {}
 
     def call_claude(self, system: str, messages: list[dict]) -> str:
+        # OpenAI Chat Completions を呼ぶ。メソッド名は各エージェントとの互換のため維持。
         # SDK の自動リトライは無効化（_build_client で max_retries=0）し、
         # ここで Retry-After ヘッダ優先・指数バックオフ（最大 5 回）を一元管理する。
         # ベース待機を 60s にするのは TPM のリセット窓が 60s のため。
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                response = self.client.messages.create(
+                response = self.client.chat.completions.create(
                     model=self.model,
+                    # gpt-4o は max_tokens で可。o系/gpt-5系へ変える場合は max_completion_tokens が必要
                     max_tokens=4096,
-                    system=system,
-                    messages=messages,
+                    messages=[{"role": "system", "content": system}, *messages],
                 )
-                return response.content[0].text
-            except anthropic.RateLimitError as e:
+                return response.choices[0].message.content or ""
+            except openai.RateLimitError as e:
                 if attempt == max_retries - 1:
                     raise
-                # Retry-After / x-ratelimit-reset-requests ヘッダを優先
+                # Retry-After ヘッダを優先
                 retry_after = None
                 if hasattr(e, "response") and e.response is not None:
-                    retry_after = (
-                        e.response.headers.get("retry-after") or
-                        e.response.headers.get("x-ratelimit-reset-requests")
-                    )
+                    retry_after = e.response.headers.get("retry-after")
                 wait = float(retry_after) if retry_after else 60.0 * (2 ** attempt)
                 self.log_event(
                     "rate_limit_retry",
