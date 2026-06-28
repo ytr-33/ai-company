@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Company Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Courier New', monospace; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 20px; color: #58a6ff; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #3fb950; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+    .container { display: grid; grid-template-columns: 280px 1fr; gap: 0; height: calc(100vh - 57px); }
+
+    /* Sidebar */
+    .sidebar {
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .sidebar h2 { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+
+    .agent-card {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+    .agent-name { font-size: 14px; font-weight: bold; color: #e6edf3; margin-bottom: 4px; }
+    .agent-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+    .badge {
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .badge-waiting  { background: #21262d; color: #8b949e; }
+    .badge-working  { background: #1f3d2e; color: #3fb950; }
+    .badge-error    { background: #3d1f1f; color: #f85149; }
+
+    .task-info {
+      margin-top: 16px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .task-info h3 { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .task-text { font-size: 13px; color: #e6edf3; }
+
+    .progress-bar {
+      height: 6px;
+      background: #21262d;
+      border-radius: 3px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #238636, #3fb950);
+      border-radius: 3px;
+      transition: width 0.5s ease;
+    }
+
+    /* Files list */
+    .files-list {
+      margin-top: 16px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .file-item {
+      font-size: 12px;
+      color: #79c0ff;
+      padding: 3px 0;
+      border-bottom: 1px solid #21262d;
+    }
+    .file-item:last-child { border-bottom: none; }
+
+    /* Main log area */
+    .main { display: flex; flex-direction: column; overflow: hidden; }
+    .log-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #30363d;
+      font-size: 12px;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .log-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .log-entry {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 6px 16px;
+      font-size: 13px;
+      border-bottom: 1px solid #161b22;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: none; } }
+
+    .log-ts { color: #484f58; min-width: 90px; font-size: 11px; margin-top: 2px; }
+    .log-agent {
+      min-width: 80px;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 1px 6px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .agent-ceo       { background: #3d2d00; color: #f0883e; }
+    .agent-architect { background: #1b2d4f; color: #58a6ff; }
+    .agent-developer1 { background: #1f3d2e; color: #3fb950; }
+    .agent-developer2 { background: #1d3d2d; color: #56d364; }
+    .agent-reviewer  { background: #3d1f4d; color: #d2a8ff; }
+
+    .log-event { color: #8b949e; min-width: 120px; font-size: 11px; margin-top: 2px; }
+    .log-detail { color: #c9d1d9; flex: 1; }
+
+    .event-task_start    .log-detail { color: #58a6ff; }
+    .event-approved      .log-detail { color: #3fb950; }
+    .event-escalating    .log-detail { color: #f85149; }
+    .event-file_created  .log-detail { color: #79c0ff; }
+    .event-agent_start   .log-detail { color: #d2a8ff; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="status-dot" id="connection-dot"></div>
+    <h1>AI Company Dashboard</h1>
+    <span style="margin-left:auto;font-size:12px;color:#8b949e" id="log-count">0 events</span>
+  </header>
+
+  <div class="container">
+    <div class="sidebar">
+      <h2>Agents</h2>
+      <div id="agents-panel">
+        <!-- populated by JS -->
+      </div>
+
+      <div class="task-info">
+        <h3>Current Task</h3>
+        <div class="task-text" id="current-task">—</div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+        <div style="font-size:11px;color:#8b949e;margin-top:4px" id="progress-text">0 / 0 tasks</div>
+      </div>
+
+      <div class="files-list">
+        <h2 style="margin-bottom:8px">Generated Files</h2>
+        <div id="files-list">—</div>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="log-header">
+        <span>Activity Log</span>
+        <button onclick="clearLogs()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px">Clear</button>
+      </div>
+      <div class="log-container" id="log-container"></div>
+    </div>
+  </div>
+
+  <script>
+    const AGENTS = ["ceo", "architect", "developer1", "developer2", "reviewer"];
+    let logCount = 0;
+
+    function renderAgents(state) {
+      const panel = document.getElementById("agents-panel");
+      panel.innerHTML = AGENTS.map(name => {
+        const statusKey = `agent_${name}_status`;
+        const status = state[statusKey] || "offline";
+        const badgeClass = status === "working" ? "badge-working" : status === "waiting" ? "badge-waiting" : "badge-waiting";
+        const icon = status === "working" ? "⚡" : status === "waiting" ? "💤" : "○";
+        return `<div class="agent-card">
+          <div class="agent-name">${name.toUpperCase()}</div>
+          <div class="agent-status"><span class="badge ${badgeClass}">${icon} ${status}</span></div>
+        </div>`;
+      }).join("");
+    }
+
+    function renderTask(state) {
+      const task = state.current_task || "—";
+      document.getElementById("current-task").textContent = task;
+
+      const all = (state.all_tasks || []).length;
+      const done = (state.completed_tasks || []).length;
+      const pct = all > 0 ? Math.round(done / all * 100) : 0;
+      document.getElementById("progress-fill").style.width = pct + "%";
+      document.getElementById("progress-text").textContent = `${done} / ${all} tasks`;
+    }
+
+    function appendLog(entry) {
+      const container = document.getElementById("log-container");
+      const ts = entry.ts ? entry.ts.split("T")[1].split(".")[0] : "";
+      const agentClass = `agent-${entry.agent}`;
+      const eventClass = `event-${entry.event}`;
+      const div = document.createElement("div");
+      div.className = `log-entry ${eventClass}`;
+      div.innerHTML = `
+        <span class="log-ts">${ts}</span>
+        <span class="log-agent ${agentClass}">${(entry.agent||"").toUpperCase()}</span>
+        <span class="log-event">${entry.event || ""}</span>
+        <span class="log-detail">${entry.detail || ""}</span>`;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      logCount++;
+      document.getElementById("log-count").textContent = `${logCount} events`;
+    }
+
+    async function refreshFiles() {
+      const res = await fetch("/api/files");
+      const data = await res.json();
+      const el = document.getElementById("files-list");
+      if (data.files.length === 0) { el.textContent = "—"; return; }
+      el.innerHTML = data.files.map(f => `<div class="file-item">📄 ${f}</div>`).join("");
+    }
+
+    async function refreshState() {
+      const res = await fetch("/api/state");
+      const state = await res.json();
+      renderAgents(state);
+      renderTask(state);
+    }
+
+    function clearLogs() {
+      document.getElementById("log-container").innerHTML = "";
+      logCount = 0;
+      document.getElementById("log-count").textContent = "0 events";
+    }
+
+    // SSE
+    const evtSource = new EventSource("/api/logs/stream");
+    evtSource.onopen = () => {
+      document.getElementById("connection-dot").style.background = "#3fb950";
+    };
+    evtSource.onerror = () => {
+      document.getElementById("connection-dot").style.background = "#f85149";
+    };
+    evtSource.onmessage = (e) => {
+      try {
+        const entry = JSON.parse(e.data);
+        appendLog(entry);
+        refreshState();
+        refreshFiles();
+      } catch {}
+    };
+
+    // initial load
+    (async () => {
+      const res = await fetch("/api/logs");
+      const data = await res.json();
+      data.logs.forEach(appendLog);
+      await refreshState();
+      await refreshFiles();
+    })();
+
+    // periodic refresh
+    setInterval(() => { refreshState(); refreshFiles(); }, 3000);
+  </script>
+</body>
+</html>
