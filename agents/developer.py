@@ -66,6 +66,11 @@ class DeveloperAgent(BaseAgent):
 
         result_text = self.call_claude(SYSTEM_PROMPT, [{"role": "user", "content": prompt}])
 
+        # NOTE(JSON抽出が脆弱): 先頭"{"〜末尾"}"を切り出す方式。code フィールドに
+        #   生コード（波括弧・改行・引用符）が入るため、LLM が JSON を厳密にエスケープ
+        #   しないと json.loads が失敗しやすい。失敗時は全文を code として扱うフォールバックで
+        #   救っているが、本来は output_config の structured outputs / tool use で型を強制すべき。
+        #   （この抽出パターンは ceo.py / architect.py / reviewer.py にも同様に存在）
         try:
             start = result_text.find("{")
             end = result_text.rfind("}") + 1
@@ -77,6 +82,9 @@ class DeveloperAgent(BaseAgent):
         # write code to output
         code = result.get("code", "")
         file_path = result.get("file_path", output_file)
+        # NOTE(パストラバーサル): LLM が返す file_path を検証せず output_dir に結合している。
+        #   "../" や絶対パスが返ると output 配下の外へ書き込み得る。
+        #   対策: 正規化後に output_dir 配下であることを検証する（resolve() + is_relative_to）。
         full_path = self.output_dir / file_path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")

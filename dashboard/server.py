@@ -51,6 +51,11 @@ async def stream_logs():
         last_pos = 0
         while True:
             if log_path.exists():
+                # FIXME(マルチバイトでシークずれ): テキストモードの seek は「文字位置」基準だが、
+                #   last_pos には encode('utf-8') の「バイト長」を足している。ログに日本語が含まれると
+                #   バイト数 > 文字数 となり seek 位置が行途中へずれ、壊れた JSON 断片を配信し得る。
+                #   対策: バイナリモード（"rb"）で開いて読み、デコードしてから処理する
+                #   （seek/tell/len をすべてバイト基準で統一する）。
                 async with aiofiles.open(log_path, "r", encoding="utf-8") as f:
                     await f.seek(last_pos)
                     content = await f.read()

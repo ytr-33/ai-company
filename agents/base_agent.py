@@ -73,6 +73,10 @@ class BaseAgent:
         if extra:
             msg.update(extra)
         inbox_path = self.inbox_dir / f"{to}.json"
+        # FIXME(書き込み競合): read-modify-write をファイルロックなしで行っているため、
+        #   複数の送信者が同じ宛先（例: developer1/2 → reviewer.json）へ同時送信すると
+        #   後勝ちで一方のメッセージが失われ得る。
+        #   対策: fcntl.flock 等での排他、または宛先ごとに一意ファイル名で書き分ける。
         messages = []
         if inbox_path.exists():
             try:
@@ -89,6 +93,10 @@ class BaseAgent:
         if not inbox_path.exists():
             return []
         try:
+            # FIXME(取りこぼし競合): 「read_text → rename」の隙間に send_message が追記すると、
+            #   その新規メッセージは未処理のまま processed/ へ退避されてしまう（=ロスト）。
+            #   さらに rename 後に同名 inbox が再作成されれば watchdog が再発火するが、
+            #   隙間に入った分は救えない。対策は send_message と同じくロック化。
             messages = json.loads(inbox_path.read_text())
             processed_path = self.processed_dir / f"{self.name}_{utcnow().replace(':','').replace('.','')}.json"
             inbox_path.rename(processed_path)

@@ -11,6 +11,12 @@ down:
 logs:
 	docker compose logs -f
 
+# FIXME(ワークスペース不一致): `make up` は docker-compose の名前付きボリューム
+#   `workspace`（/var/lib/docker 配下）を使うが、この `cli` ターゲットはホストの
+#   ./workspace を見るため、Docker 上のエージェントとメッセージを共有できない。
+#   Docker 利用時は CLI もコンテナ内で実行するか（例: docker compose run）、
+#   docker-compose 側を bind mount（./workspace:/workspace）に変更して揃える必要がある。
+#   ローカル一括起動（run_local.sh）なら全プロセスが ./workspace を共有するため問題ない。
 cli:
 	@WORKSPACE_DIR=./workspace python cli/main.py
 

@@ -25,6 +25,8 @@ def send_to_ceo(msg_type: str, content: str, extra: dict = None):
         "to": "ceo",
         "type": msg_type,
         "content": content,
+        # NOTE: datetime.utcnow() は Python 3.12 で非推奨。
+        #   datetime.now(timezone.utc).isoformat() に置き換えるのが望ましい。
         "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
     }
     if extra:
@@ -42,6 +44,11 @@ def send_to_ceo(msg_type: str, content: str, extra: dict = None):
 
 
 def wait_for_ceo_response(timeout: int = 120) -> dict | None:
+    # NOTE(応答の取りこぼし): user_response.json は CEO が上書き／CLI が読んで削除する単一ファイル。
+    #   CEO が短時間に複数応答を書くと前の応答が読まれる前に上書きされ得る。
+    #   また「送信直後に古い応答を削除」する作り（下記 unlink）のため、CEO が即応答すると
+    #   正規の応答を削除してしまう競合もある。対話が逐次的な前提で成立しているだけ。
+    #   対策: メッセージキュー（追記式 JSONL）+ 既読オフセット管理にする。
     response_path = STATE_DIR / "user_response.json"
     # clear old response
     if response_path.exists():

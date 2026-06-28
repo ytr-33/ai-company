@@ -135,6 +135,11 @@ class ArchitectAgent(BaseAgent):
                 break
 
     def _dispatch_ready_tasks(self):
+        # FIXME(重複ディスパッチ): 「ディスパッチ済み（作業中）」を追跡していないため、
+        #   あるタスク完了で本メソッドが再度呼ばれると、まだ完了していない作業中タスクの
+        #   依存が満たされていれば再送してしまう。
+        #   例: T-001/T-002 を同時起動 → T-001 完了で再呼び出し → T-002 がまだ作業中なのに再ディスパッチ。
+        #   対策: self.dispatched_tasks: set を用意し、未ディスパッチかつ依存解消のものだけ送る。
         for task in self.pending_tasks:
             if task["task_id"] in self.completed_tasks:
                 continue
