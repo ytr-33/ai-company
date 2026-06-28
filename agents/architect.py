@@ -45,6 +45,8 @@ class ArchitectAgent(BaseAgent):
         super().__init__("architect")
         self.pending_tasks: list[dict] = []
         self.completed_tasks: set[str] = set()
+        # ディスパッチ済み（=Developerに送ったが、まだ完了していない作業中）タスクID
+        self.dispatched_tasks: set[str] = set()
 
     def process_inbox(self):
         messages = self.read_inbox()
@@ -71,6 +73,7 @@ class ArchitectAgent(BaseAgent):
     def _handle_design_request(self, spec: str, msg: dict):
         self.log_event("designing", "設計開始")
         self.completed_tasks = set()
+        self.dispatched_tasks = set()
 
         result = self.call_claude(SYSTEM_PROMPT, [
             {"role": "user", "content": f"以下の仕様書に基づいて設計・タスク分解してください:\n\n{spec}"}
@@ -104,6 +107,8 @@ class ArchitectAgent(BaseAgent):
     def _handle_task_done(self, msg: dict):
         task_id = msg.get("task_id")
         self.completed_tasks.add(task_id)
+        # 完了したら「作業中」集合から外し、dispatched_tasks の意味論を実体に合わせる
+        self.dispatched_tasks.discard(task_id)
         state = self.get_state()
         completed = state.get("completed_tasks", [])
         completed.append(task_id)
@@ -122,6 +127,9 @@ class ArchitectAgent(BaseAgent):
         task_id = msg.get("task_id")
         self.log_event("revised_instruction", f"タスク {task_id} を修正指示で再割り当て")
         # find the task and reassign
+        # 修正再割り当ては _dispatch_ready_tasks を経由せず直接 send_message するため、
+        # dispatched_tasks に入っていてもリトライ再送はブロックされない。
+        # 再び作業中になるので dispatched_tasks に入れて状態の整合性を保つ。
         for task in self.pending_tasks:
             if task["task_id"] == task_id:
                 task["description"] = content
@@ -132,28 +140,29 @@ class ArchitectAgent(BaseAgent):
                     "context": task.get("context", ""),
                     "retry_count": 0,
                 })
+                self.dispatched_tasks.add(task_id)
                 break
 
     def _dispatch_ready_tasks(self):
-        # FIXME(重複ディスパッチ): 「ディスパッチ済み（作業中）」を追跡していないため、
-        #   あるタスク完了で本メソッドが再度呼ばれると、まだ完了していない作業中タスクの
-        #   依存が満たされていれば再送してしまう。
-        #   例: T-001/T-002 を同時起動 → T-001 完了で再呼び出し → T-002 がまだ作業中なのに再ディスパッチ。
-        #   対策: self.dispatched_tasks: set を用意し、未ディスパッチかつ依存解消のものだけ送る。
+        # 対応済み(重複ディスパッチ): self.dispatched_tasks で作業中タスクを追跡し、
+        #   未完了かつ未ディスパッチかつ依存が全て完了のタスクのみ送信する。
+        #   これにより T-001 完了で再呼び出しされても、作業中の T-002 は再送されない。
         for task in self.pending_tasks:
-            if task["task_id"] in self.completed_tasks:
+            task_id = task["task_id"]
+            if task_id in self.completed_tasks or task_id in self.dispatched_tasks:
                 continue
             deps = task.get("dependencies", [])
             if all(d in self.completed_tasks for d in deps):
                 assignee = task["assignee"]
-                self.log_event("task_assigned", f"{task['task_id']} → {assignee}: {task['title']}")
+                self.log_event("task_assigned", f"{task_id} → {assignee}: {task['title']}")
                 self.send_message(assignee, "assign_task", task["description"], {
-                    "task_id": task["task_id"],
+                    "task_id": task_id,
                     "title": task["title"],
                     "output_file": task["output_file"],
                     "context": task.get("context", ""),
                     "retry_count": 0,
                 })
+                self.dispatched_tasks.add(task_id)
 
 
 if __name__ == "__main__":

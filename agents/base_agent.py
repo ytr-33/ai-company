@@ -2,7 +2,9 @@ import json
 import os
 import time
 import uuid
+import fcntl
 import logging
+import contextlib
 from pathlib import Path
 from datetime import datetime, timezone
 from watchdog.observers import Observer
@@ -61,6 +63,20 @@ class BaseAgent:
             "or CLAUDE_CODE_OAUTH_TOKEN in .env"
         )
 
+    @contextlib.contextmanager
+    def _inbox_lock(self, name: str):
+        # 宛先ごとの専用ロックファイル（<name>.json.lock）に対して排他ロックを取る。
+        # inbox 本体（<name>.json）は read_inbox で rename/削除されるため、
+        # ロック対象には常に存在する安定したロックファイルを使う。
+        lock_path = self.inbox_dir / f"{name}.json.lock"
+        lock_file = open(lock_path, "a+")
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+
     def send_message(self, to: str, msg_type: str, content: str, extra: dict = None):
         msg = {
             "id": str(uuid.uuid4()),
@@ -73,36 +89,35 @@ class BaseAgent:
         if extra:
             msg.update(extra)
         inbox_path = self.inbox_dir / f"{to}.json"
-        # FIXME(書き込み競合): read-modify-write をファイルロックなしで行っているため、
-        #   複数の送信者が同じ宛先（例: developer1/2 → reviewer.json）へ同時送信すると
-        #   後勝ちで一方のメッセージが失われ得る。
-        #   対策: fcntl.flock 等での排他、または宛先ごとに一意ファイル名で書き分ける。
-        messages = []
-        if inbox_path.exists():
-            try:
-                messages = json.loads(inbox_path.read_text())
-            except Exception:
-                messages = []
-        messages.append(msg)
-        inbox_path.write_text(json.dumps(messages, ensure_ascii=False, indent=2))
+        # 対応済み(書き込み競合): 宛先ごとのロックファイルで排他ロックを取り、
+        #   read-modify-write をアトミックに行う。同じ宛先への同時送信でも取りこぼさない。
+        with self._inbox_lock(to):
+            messages = []
+            if inbox_path.exists():
+                try:
+                    messages = json.loads(inbox_path.read_text())
+                except Exception:
+                    messages = []
+            messages.append(msg)
+            inbox_path.write_text(json.dumps(messages, ensure_ascii=False, indent=2))
         self.log_event("message_sent", f"→ [{to}] {msg_type}: {content[:80]}")
         return msg["id"]
 
     def read_inbox(self) -> list[dict]:
         inbox_path = self.inbox_dir / f"{self.name}.json"
-        if not inbox_path.exists():
-            return []
-        try:
-            # FIXME(取りこぼし競合): 「read_text → rename」の隙間に send_message が追記すると、
-            #   その新規メッセージは未処理のまま processed/ へ退避されてしまう（=ロスト）。
-            #   さらに rename 後に同名 inbox が再作成されれば watchdog が再発火するが、
-            #   隙間に入った分は救えない。対策は send_message と同じくロック化。
-            messages = json.loads(inbox_path.read_text())
-            processed_path = self.processed_dir / f"{self.name}_{utcnow().replace(':','').replace('.','')}.json"
-            inbox_path.rename(processed_path)
-            return messages
-        except Exception:
-            return []
+        # 対応済み(取りこぼし競合): 自分宛のロックを取った状態で「読み込み → inbox を空にする」
+        #   までを行い、その隙間に send_message が割り込めないようにする。
+        #   ロック内で rename 済みのため、以降の追記は新しい inbox ファイルへ入り再発火で拾える。
+        with self._inbox_lock(self.name):
+            if not inbox_path.exists():
+                return []
+            try:
+                messages = json.loads(inbox_path.read_text())
+                processed_path = self.processed_dir / f"{self.name}_{utcnow().replace(':','').replace('.','')}.json"
+                inbox_path.rename(processed_path)
+                return messages
+            except Exception:
+                return []
 
     def log_event(self, event: str, detail: str):
         entry = {

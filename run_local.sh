@@ -19,7 +19,8 @@ echo "=============================="
 
 # ワークスペース初期化
 mkdir -p "$WORKSPACE_DIR"/{messages/{inbox,processed},state,output/{src,docs}}
-rm -f "$WORKSPACE_DIR"/messages/inbox/*.json
+# *.json だけでなく排他ロック用の *.json.lock も初期化対象に含める
+rm -f "$WORKSPACE_DIR"/messages/inbox/*.json*
 rm -f "$WORKSPACE_DIR"/state/project.json
 rm -f "$WORKSPACE_DIR"/state/task_log.jsonl
 rm -f "$WORKSPACE_DIR"/state/user_response.json
