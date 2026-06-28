@@ -152,13 +152,32 @@ class BaseAgent:
             return {}
 
     def call_claude(self, system: str, messages: list[dict]) -> str:
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=4096,
-            system=system,
-            messages=messages,
-        )
-        return response.content[0].text
+        # RateLimitError はリセットまで 60 秒前後かかるため、SDK デフォルトの
+        # 短いリトライでは不十分。ここで指数バックオフ（最大 5 回）を追加する。
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    system=system,
+                    messages=messages,
+                )
+                return response.content[0].text
+            except anthropic.RateLimitError as e:
+                if attempt == max_retries - 1:
+                    raise
+                # Retry-After ヘッダがあればそれを優先、なければ指数バックオフ
+                retry_after = None
+                if hasattr(e, "response") and e.response is not None:
+                    retry_after = e.response.headers.get("retry-after") or \
+                                  e.response.headers.get("x-ratelimit-reset-requests")
+                wait = float(retry_after) if retry_after else 30.0 * (2 ** attempt)
+                self.log_event(
+                    "rate_limit_retry",
+                    f"429 レートリミット。{wait:.0f}秒後に再試行 ({attempt + 1}/{max_retries})"
+                )
+                time.sleep(wait)
 
     def process_inbox(self):
         raise NotImplementedError
